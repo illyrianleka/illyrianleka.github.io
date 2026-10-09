@@ -39,7 +39,7 @@
 </head>
 <body>
 <header>
-  <div><h1>Peg <span>Scan</span></h1><div class="sub">Each logo is its own card, even in a stack.</div></div>
+  <div><h1>Peg <span>Scan</span></h1><div class="sub">A sliver is enough. Logo edge, side bar, or name.</div></div>
   <div class="count" id="count">0 saved</div>
 </header>
 <div id="err" class="err" hidden></div>
@@ -154,8 +154,10 @@ function matchText(text) {
     }
   }
   if (best) return { name: best[1], series: best[2], kind: best[3], note: best[4] };
-  const seriesHit = n.match(/hw ev|factory fresh|tooned|hw dirt|hw euro|exoticars|ferrari|drag racers|then and now|nightspeed|drop tops|batmobile|j-imports|j imports/);
-  return { name: "Unread card", series: seriesHit ? seriesHit[0].toUpperCase() : "Unknown collection", kind: "UNK", note: "Name not read. Check the flame yourself." };
+  const seriesWords = ["hw dream garage","exoticars","tooned","hw ev","factory fresh","hw dirt","hw euro","drag racers","then and now","nightspeed","drop tops","hw j-imports","j-imports","hw screen time","compact kings","sweet rides","team wheels","layin low","hw torque","cool classics","hw mods","x-raycers"];
+  const seriesHit = seriesWords.find(s => n.includes(s));
+  if (seriesHit) return { name: "Glimpse only", series: seriesHit.toUpperCase(), kind: "UNK", note: "Only a sliver was visible. Check the flame on this card." };
+  return { name: "Unread glimpse", series: "Unknown collection", kind: "UNK", note: "Caught a piece of a card. Name not readable yet." };
 }
 function showError(msg) { err.hidden = false; err.textContent = msg; }
 function say(msg, ms) {
@@ -190,58 +192,57 @@ function loop() {
 }
 function detect() {
   overlay.width = overlay.clientWidth; overlay.height = overlay.clientHeight;
-  grab.width = 180; grab.height = Math.max(1, Math.round(180 * video.videoHeight / video.videoWidth));
+  grab.width = 200; grab.height = Math.max(1, Math.round(200 * video.videoHeight / video.videoWidth));
   gctx.drawImage(video, 0, 0, grab.width, grab.height);
   const data = gctx.getImageData(0, 0, grab.width, grab.height).data;
-  const cols = 12, rows = 16;
+  const cols = 16, rows = 22;
   const cw = grab.width / cols, ch = grab.height / rows;
   const cells = [];
   for (let y = 0; y < rows; y++) for (let x = 0; x < cols; x++) {
-    let blue = 0, logo = 0, blister = 0, n = 0;
-    for (let sy = 0; sy < 3; sy++) for (let sx = 0; sx < 3; sx++) {
-      const px = Math.min(grab.width - 1, Math.floor(x * cw + (sx + .5) * cw / 3));
-      const py = Math.min(grab.height - 1, Math.floor(y * ch + (sy + .5) * ch / 3));
+    let blue = 0, logo = 0, bar = 0;
+    for (let sy = 0; sy < 2; sy++) for (let sx = 0; sx < 2; sx++) {
+      const px = Math.min(grab.width - 1, Math.floor(x * cw + (sx + .5) * cw / 2));
+      const py = Math.min(grab.height - 1, Math.floor(y * ch + (sy + .5) * ch / 2));
       const i = (py * grab.width + px) * 4;
       const r = data[i], g = data[i+1], b = data[i+2];
-      // Card blue from the Purple Passion photo: about 20, 85, 150
-      if (b > 115 && b > r + 35 && b > g + 10) blue++;
-      // Logo yellow/red, including washed indoor yellow
-      if ((r > 150 && g > 90 && b < 130 && r > b + 40) || (r > 150 && g < 110 && b < 110 && r > g + 30)) logo++;
-      // Clear blister over a light card
-      if (r > 165 && g > 165 && b > 160 && Math.abs(r - b) < 30) blister++;
-      n++;
+      if (b > 105 && b > r + 28 && b > g + 8) blue++;
+      if ((r > 145 && g > 80 && b < 140 && r > b + 30) || (r > 145 && g < 115 && b < 115 && r > g + 25)) logo++;
+      // Side series bars: green Tooned, yellow Exoticars, black Dream Garage, red Ferrari
+      if ((g > 120 && g > r + 25 && g > b + 15) || (r > 150 && g > 130 && b < 80) || (r < 45 && g < 45 && b < 45)) bar++;
     }
-    if (blue >= 2 || logo >= 2 || (blister >= 4 && blue >= 1)) cells.push({ x, y, blue, logo });
+    if (blue || logo || bar >= 3) cells.push({ x, y, blue, logo, bar });
   }
   const blobs = [];
   cells.forEach(c => {
-    let blob = blobs.find(b => Math.abs(b.x - c.x) <= 2 && Math.abs(b.y - c.y) <= 1);
-    if (!blob) { blob = { x: c.x, y: c.y, n: 0, sx: 0, sy: 0, logo: 0, blue: 0 }; blobs.push(blob); }
-    blob.n++; blob.sx += c.x; blob.sy += c.y; blob.logo += c.logo; blob.blue += c.blue;
+    let blob = blobs.find(b => Math.abs(b.x - c.x) <= 1 && Math.abs(b.y - c.y) <= 1);
+    if (!blob) { blob = { x: c.x, y: c.y, n: 0, sx: 0, sy: 0, logo: 0, blue: 0, bar: 0, minx: c.x, maxx: c.x, miny: c.y, maxy: c.y }; blobs.push(blob); }
+    blob.n++; blob.sx += c.x; blob.sy += c.y; blob.logo += c.logo; blob.blue += c.blue; blob.bar += c.bar;
+    blob.minx = Math.min(blob.minx, c.x); blob.maxx = Math.max(blob.maxx, c.x);
+    blob.miny = Math.min(blob.miny, c.y); blob.maxy = Math.max(blob.maxy, c.y);
   });
   ctx.clearRect(0, 0, overlay.width, overlay.height);
-  ctx.strokeStyle = "#e2b340"; ctx.lineWidth = 3; ctx.font = "bold 13px -apple-system"; ctx.fillStyle = "#e2b340";
+  ctx.lineWidth = 3; ctx.font = "bold 12px -apple-system";
   const now = performance.now();
   const live = new Set();
-  const found = blobs.filter(b => b.n >= 2 && (b.logo > 0 || b.blue > 2));
-  found.forEach((b, idx) => {
-    const cx = b.sx / b.n, cy = b.sy / b.n;
-    const cardW = Math.max(cw * 3.2, grab.width * 0.28);
-    const cardH = cardW * 1.25;
-    const x0 = Math.max(0, cx * cw - cardW / 2);
-    const y0 = Math.max(0, cy * ch - cardH * 0.28);
-    const key = Math.round(cx) + ":" + Math.round(cy);
+  const found = blobs.filter(b => b.n >= 1 && (b.logo > 0 || b.blue > 1 || b.bar > 2));
+  found.slice(0, 8).forEach((b, idx) => {
+    const x0 = b.minx * cw, y0 = b.miny * ch;
+    const bw = Math.max((b.maxx - b.minx + 1) * cw, cw * 1.4);
+    const bh = Math.max((b.maxy - b.miny + 1) * ch, ch * 1.4);
+    const key = b.minx + ":" + b.miny;
     live.add(key);
-    ctx.strokeRect(x0 / grab.width * overlay.width, y0 / grab.height * overlay.height, cardW / grab.width * overlay.width, cardH / grab.height * overlay.height);
-    ctx.fillText(String(idx + 1), x0 / grab.width * overlay.width + 6, y0 / grab.height * overlay.height + 16);
+    ctx.strokeStyle = b.logo ? "#e2b340" : "#7eb6ff";
+    ctx.fillStyle = ctx.strokeStyle;
+    ctx.strokeRect(x0 / grab.width * overlay.width, y0 / grab.height * overlay.height, bw / grab.width * overlay.width, bh / grab.height * overlay.height);
+    ctx.fillText(String(idx + 1), x0 / grab.width * overlay.width + 4, y0 / grab.height * overlay.height + 14);
     if (!locks.has(key)) locks.set(key, now);
-    if (now - locks.get(key) > 500 && now - (seen.get(key) || 0) > 5000) {
+    if (now - locks.get(key) > 450 && now - (seen.get(key) || 0) > 4500) {
       seen.set(key, now);
-      queue.push({ x: x0 / grab.width, y: y0 / grab.height, w: cardW / grab.width, h: cardH / grab.height, key });
+      queue.push({ x: x0 / grab.width, y: y0 / grab.height, w: bw / grab.width, h: bh / grab.height, key });
     }
   });
   for (const key of locks.keys()) if (!live.has(key)) locks.delete(key);
-  count.textContent = found.length + " seen · " + saved + " saved";
+  count.textContent = found.length + " glimpses · " + saved + " saved";
   if (!busy && queue.length) capture(queue.shift());
 }
 async function capture(box) {
