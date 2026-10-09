@@ -51,7 +51,7 @@
 <div class="controls">
   <button class="primary" id="startBtn" type="button">Start camera</button>
   <button id="torchBtn" type="button" disabled>Light</button>
-  <button id="clearBtn" type="button">Clear</button>
+  <button id="shotBtn" type="button" disabled>Capture</button>
 </div>
 <div id="list"><p class="empty">Point at a peg or a bin. Stacked cards are split by the Hot Wheels logo, and each one is saved on its own. You still check the gold flame.</p></div>
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
@@ -173,6 +173,7 @@ async function startCamera() {
     video.srcObject = stream;
     await video.play();
     startBtn.disabled = true;
+    document.getElementById("shotBtn").disabled = false;
     const caps = stream.getVideoTracks()[0].getCapabilities?.();
     torchBtn.disabled = !(caps && caps.torch);
     say("Camera on. Stacks are split by each logo.");
@@ -236,9 +237,9 @@ function detect() {
     ctx.strokeRect(x0 / grab.width * overlay.width, y0 / grab.height * overlay.height, bw / grab.width * overlay.width, bh / grab.height * overlay.height);
     ctx.fillText(String(idx + 1), x0 / grab.width * overlay.width + 4, y0 / grab.height * overlay.height + 14);
     if (!locks.has(key)) locks.set(key, now);
-    if (now - locks.get(key) > 450 && now - (seen.get(key) || 0) > 4500) {
+    if (now - locks.get(key) > 350 && now - (seen.get(key) || 0) > 3500) {
       seen.set(key, now);
-      queue.push({ x: x0 / grab.width, y: y0 / grab.height, w: bw / grab.width, h: bh / grab.height, key });
+      queue.push({ x: Math.max(0, x0 / grab.width - 0.08), y: Math.max(0, y0 / grab.height - 0.12), w: Math.min(1, bw / grab.width + 0.2), h: Math.min(1, bh / grab.height + 0.28), key });
     }
   });
   for (const key of locks.keys()) if (!live.has(key)) locks.delete(key);
@@ -247,42 +248,54 @@ function detect() {
 }
 async function capture(box) {
   busy = true;
-  say(queue.length ? "Reading a card, " + queue.length + " waiting…" : "Reading this card…");
   const snap = document.createElement("canvas");
   const sw = video.videoWidth, sh = video.videoHeight;
-  const pad = 8;
-  const x = Math.max(0, Math.floor(box.x * sw) - pad);
-  const y = Math.max(0, Math.floor(box.y * sh) - pad);
-  const w = Math.min(sw - x, Math.floor(box.w * sw) + pad * 2);
-  const h = Math.min(sh - y, Math.floor(box.h * sh) + pad * 2);
-  snap.width = Math.max(1, w); snap.height = Math.max(1, h);
+  const x = Math.max(0, Math.floor(box.x * sw));
+  const y = Math.max(0, Math.floor(box.y * sh));
+  const w = Math.max(1, Math.min(sw - x, Math.floor(box.w * sw)));
+  const h = Math.max(1, Math.min(sh - y, Math.floor(box.h * sh)));
+  snap.width = w; snap.height = h;
   snap.getContext("2d").drawImage(video, x, y, w, h, 0, 0, w, h);
   const url = snap.toDataURL("image/jpeg", 0.85);
+  const row = addItem(url, { name: "Reading glimpse…", series: "Hold still", kind: "UNK", note: "Photo saved. Name comes next." });
+  say("Saved a glimpse");
   let text = "";
   try {
     if (window.Tesseract) {
-      const r = await Tesseract.recognize(url, "eng");
+      const r = await Promise.race([
+        Tesseract.recognize(url, "eng"),
+        new Promise((_, reject) => setTimeout(() => reject(new Error("slow")), 8000))
+      ]);
       text = r.data.text || "";
     }
   } catch (e) { text = ""; }
-  const hit = matchText(text);
-  addItem(url, hit);
+  const hit = text.trim() ? matchText(text) : { name: "Glimpse saved", series: "Unknown collection", kind: "UNK", note: "Could not read the name. Check the flame on this card." };
+  fillRow(row, hit);
   if (hit.kind === "SUPER" || hit.kind === "TH" || hit.kind === "RED") {
     say(hit.kind + ": " + hit.name, 2800);
     navigator.vibrate?.([80, 40, 80]);
-  } else say(hit.name + " · " + hit.series, 1400);
+  }
   busy = false;
 }
-function addItem(url, hit, raw) {
+function addItem(url, hit) {
   if (list.querySelector(".empty")) list.innerHTML = "";
   saved++;
   count.textContent = saved + " saved";
   const el = document.createElement("div");
   el.className = "item";
-  const label = hit.kind === "SUPER" ? "SUPER" : hit.kind === "TH" ? "TREASURE HUNT" : hit.kind === "RED" ? "RED EDITION" : hit.kind === "UNK" ? "CHECK CARD" : "NOT RARE";
-  el.innerHTML = `<img alt="" src="${url}"><div><div class="name">${hit.name}</div><div class="meta">${hit.series}<br>${hit.note}</div><div class="badge ${hit.kind}">${label}</div></div>`;
+  el.innerHTML = `<img alt="" src="${url}"><div class="body"></div>`;
   list.prepend(el);
+  fillRow(el, hit);
+  return el;
 }
+function fillRow(el, hit) {
+  const label = hit.kind === "SUPER" ? "SUPER" : hit.kind === "TH" ? "TREASURE HUNT" : hit.kind === "RED" ? "RED EDITION" : hit.kind === "UNK" ? "CHECK CARD" : "NOT RARE";
+  el.querySelector(".body").innerHTML = `<div class="name">${hit.name}</div><div class="meta">${hit.series}<br>${hit.note}</div><div class="badge ${hit.kind}">${label}</div>`;
+}
+document.getElementById("shotBtn").addEventListener("click", () => {
+  if (!video.videoWidth || busy) return;
+  capture({ x: 0.2, y: 0.15, w: 0.6, h: 0.7, key: "shot" });
+});
 startBtn.addEventListener("click", startCamera);
 torchBtn.addEventListener("click", toggleTorch);
 document.getElementById("clearBtn").addEventListener("click", () => {
