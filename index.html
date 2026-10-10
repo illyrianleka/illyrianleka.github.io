@@ -57,7 +57,19 @@
 <div id="list"><p class="empty">Point the gold box at a card or a sliver and tap Capture. The photo is saved immediately. You still check the gold flame.</p></div>
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 <script>
-const CATALOG = [["ferrari f40","Ferrari F40 Competizione","Ferrari","SUPER","63/250"],["mustang gtd","Ford Mustang GTD","Factory Fresh","SUPER","43/250"],["94 toyota supra","'94 Toyota Supra","Tooned","SUPER","K case"],["ram 1500","'23 Ram 1500","HW Dirt","SUPER","N case"],["purple passion","Tooned Purple Passion","HW Dream Garage","NO","not rare"],["mazda rx-3","Mazda RX-3","Tooned","NO","4/10"],["pagani zonda","Pagani Zonda Cinque","Exoticars","NO","not rare"]];
+const CATALOG = [
+  ["kia ev6","Custom Kia EV6","HW EV","NO","2025 · 8/10 · common"],
+  ["ev6","Custom Kia EV6","HW EV","NO","2025 · 8/10"],
+  ["hw ev 8/10","Custom Kia EV6","HW EV","NO","2025 pearl teal"],
+  ["8/10","Custom Kia EV6","HW EV","NO","check year/teal"],
+  ["ferrari f40","Ferrari F40 Competizione","Ferrari","SUPER","63/250"],
+  ["mustang gtd","Ford Mustang GTD","Factory Fresh","SUPER","43/250"],
+  ["94 toyota supra","'94 Toyota Supra","Tooned","SUPER","K case"],
+  ["ram 1500","'23 Ram 1500","HW Dirt","SUPER","N case"],
+  ["purple passion","Tooned Purple Passion","HW Dream Garage","NO","not rare"],
+  ["mazda rx-3","Mazda RX-3","Tooned","NO","4/10"],
+  ["pagani zonda","Pagani Zonda Cinque","Exoticars","NO","not rare"]
+];
 const video = document.getElementById("video");
 const toast = document.getElementById("toast");
 const err = document.getElementById("err");
@@ -67,7 +79,18 @@ const startBtn = document.getElementById("startBtn");
 const shotBtn = document.getElementById("shotBtn");
 let stream = null, torchOn = false, saved = 0, reading = false;
 function norm(s){return (s||"").toLowerCase().replace(/[^a-z0-9]+/g," ").replace(/\s+/g," ").trim();}
-function matchText(text){const n=norm(text);let best=null;for(const row of CATALOG)if(n.includes(row[0])&&(!best||row[0].length>best[0].length))best=row;if(best)return{name:best[1],series:best[2],kind:best[3],note:best[4]||"Check the flame."};return{name:"Check card",series:"Unknown",kind:"UNK",note:"Photo saved. Tilt for the gold flame."};}
+function matchText(text){
+  const n = norm(text);
+  // Multi-trait for EV6
+  if ((n.includes("hw ev") || n.includes("ev")) && (n.includes("8/10") || n.includes("8 10") || n.includes("120/250") || n.includes("2025"))) {
+    return { name: "Custom Kia EV6", series: "HW EV", kind: "NO", note: "2025 · 8/10 · common mainline. Check flame." };
+  }
+  if (n.includes("kia") && n.includes("ev")) return { name: "Custom Kia EV6", series: "HW EV", kind: "NO", note: "common" };
+  let best = null;
+  for (const row of CATALOG) if (n.includes(row[0]) && (!best || row[0].length > best[0].length)) best = row;
+  if (best) return { name: best[1], series: best[2], kind: best[3], note: best[4] || "Check the flame." };
+  return { name: "Check card", series: "Unknown", kind: "UNK", note: "Photo saved. Tilt for the gold flame." };
+}
 function say(msg){toast.style.display="block";toast.textContent=msg;clearTimeout(say._t);say._t=setTimeout(()=>toast.style.display="none",1800);}
 async function startCamera(){err.hidden=true;try{stream=await navigator.mediaDevices.getUserMedia({audio:false,video:{facingMode:{ideal:"environment"},width:{ideal:1920},height:{ideal:1080}}});video.srcObject=stream;await video.play();startBtn.disabled=true;shotBtn.disabled=false;const caps=stream.getVideoTracks()[0].getCapabilities?.();document.getElementById("torchBtn").disabled=!(caps&&caps.torch);say("Aim the box. Tap Capture.");}catch(e){err.hidden=false;err.textContent="Open in Safari and allow Camera.";}}
 async function toggleTorch(){torchOn=!torchOn;try{await stream.getVideoTracks()[0].applyConstraints({advanced:[{torch:torchOn}]});document.getElementById("torchBtn").textContent=torchOn?"Light on":"Light";}catch(e){torchOn=false;}}
