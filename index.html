@@ -7,25 +7,26 @@
 <meta name="theme-color" content="#0b0d10">
 <title>Peg Scan</title>
 <style>
-  :root { --bg:#0b0d10; --card:#161a20; --line:#2c3442; --text:#f4f6f8; --muted:#9aa3b2; --gold:#e2b340; --silver:#d5dbe3; --green:#3dd68c; --red:#ff6b61; }
+  :root { --bg:#0b0d10; --card:#161a20; --line:#2c3442; --text:#f4f6f8; --muted:#9aa3b2; --gold:#e2b340; --silver:#d5dbe3; --green:#3dd68c; }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   html, body { margin:0; background:var(--bg); color:var(--text); font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text",sans-serif; }
   header { padding: calc(8px + env(safe-area-inset-top)) 14px 8px; display:flex; justify-content:space-between; align-items:flex-end; }
   h1 { margin:0; font-size:18px; } h1 span { color:var(--gold); }
   .sub { color:var(--muted); font-size:12px; margin-top:2px; }
   .count { font-size:13px; color:var(--muted); }
-  .stage { position:relative; margin:0 12px; border-radius:16px; overflow:hidden; background:#000; height:42dvh; }
-  video, #overlay { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; }
-  #overlay { pointer-events:none; }
+  .stage { position:relative; margin:0 12px; border-radius:16px; overflow:hidden; background:#000; height:46dvh; }
+  video { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; }
+  .cross { position:absolute; inset:18% 22%; border:2px solid rgba(226,179,64,.7); border-radius:12px; pointer-events:none; }
   .toast { position:absolute; left:10px; right:10px; top:10px; background:rgba(10,12,16,.88); border:1px solid rgba(226,179,64,.45); color:var(--gold); border-radius:12px; padding:8px 10px; font-size:13px; font-weight:700; display:none; }
   .controls { display:flex; gap:8px; padding:10px 12px; }
-  button { flex:1; border:0; border-radius:999px; background:#222833; color:var(--text); font:inherit; font-size:14px; font-weight:700; padding:11px 10px; }
+  button { flex:1; border:0; border-radius:999px; background:#222833; color:var(--text); font:inherit; font-size:15px; font-weight:700; padding:13px 10px; }
   button.primary { background:var(--gold); color:#1a1406; }
+  button.capture { background:var(--green); color:#06200f; flex:1.4; }
   button:disabled { opacity:.4; }
   .err { color:#ffb4ae; font-size:13px; padding:0 14px 6px; }
   #list { padding:0 12px calc(18px + env(safe-area-inset-bottom)); }
   .item { display:flex; gap:10px; background:var(--card); border:1px solid var(--line); border-radius:14px; padding:8px; margin-bottom:8px; }
-  .item img { width:86px; height:64px; object-fit:cover; border-radius:8px; background:#000; flex:none; }
+  .item img { width:92px; height:70px; object-fit:cover; border-radius:8px; background:#000; flex:none; }
   .name { font-weight:750; font-size:14px; }
   .meta { color:var(--muted); font-size:12px; margin-top:3px; line-height:1.35; }
   .badge { display:inline-block; margin-top:6px; font-size:10px; font-weight:800; letter-spacing:.04em; border-radius:999px; padding:3px 7px; }
@@ -39,269 +40,43 @@
 </head>
 <body>
 <header>
-  <div><h1>Peg <span>Scan</span></h1><div class="sub">A sliver is enough. Logo edge, side bar, or name.</div></div>
+  <div><h1>Peg <span>Scan</span></h1><div class="sub">Aim at a card. Tap Capture. Photo saves first.</div></div>
   <div class="count" id="count">0 saved</div>
 </header>
 <div id="err" class="err" hidden></div>
 <div class="stage">
   <video id="video" playsinline muted autoplay></video>
-  <canvas id="overlay"></canvas>
+  <div class="cross"></div>
   <div class="toast" id="toast"></div>
 </div>
 <div class="controls">
   <button class="primary" id="startBtn" type="button">Start camera</button>
+  <button class="capture" id="shotBtn" type="button" disabled>Capture</button>
   <button id="torchBtn" type="button" disabled>Light</button>
-  <button id="shotBtn" type="button" disabled>Capture</button>
 </div>
-<div id="list"><p class="empty">Point at a peg or a bin. Stacked cards are split by the Hot Wheels logo, and each one is saved on its own. You still check the gold flame.</p></div>
+<div id="list"><p class="empty">Point the gold box at a card or a sliver and tap Capture. The photo is saved immediately. You still check the gold flame.</p></div>
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 <script>
-const CATALOG = [
-  ["ferrari f40","Ferrari F40 Competizione","Ferrari","SUPER","63/250 · candy black · gold flame"],
-  ["mustang gtd","Ford Mustang GTD","Factory Fresh","SUPER","43/250 · candy blue"],
-  ["civic custom","Honda Civic Custom","Drag Racers","SUPER","151/250 · candy green"],
-  ["lotus sport elise","Lotus Sport Elise","Compact Kings","SUPER","candy orange"],
-  ["sport elise","Lotus Sport Elise","Compact Kings","SUPER","candy orange"],
-  ["sierra cosworth","'87 Ford Sierra Cosworth","HW Euro","SUPER","candy pink"],
-  ["64 impala","'64 Impala","Layin' Low","SUPER","candy teal"],
-  ["subaru impreza","Subaru Impreza WRX","HW J-Imports","SUPER","candy blue"],
-  ["impreza wrx","Subaru Impreza WRX","HW J-Imports","SUPER","candy blue"],
-  ["94 toyota supra","'94 Toyota Supra","Tooned","SUPER","K case · cartoon Supra · 94 door"],
-  ["tooned supra","'94 Toyota Supra","Tooned","SUPER","K case · check gold flame"],
-  ["porsche 911 carrera rs","Porsche 911 Carrera RS 2.7","Then and Now","SUPER","M case · brown-gold"],
-  ["carrera rs","Porsche 911 Carrera RS 2.7","Then and Now","SUPER","M case · brown-gold"],
-  ["ram 1500","'23 Ram 1500","HW Dirt","SUPER","N case · purple · green windows"],
-  ["aar cuda","'70 Plymouth AAR Cuda","HW Torque","SUPER","P case · gold · red flames"],
-  ["plymouth cuda","'70 Plymouth AAR Cuda","HW Torque","SUPER","P case · gold"],
-  ["firebird 400","'67 Pontiac Firebird 400","Cool Classics","SUPER","Q case · candy blue"],
-  ["drift ender","Drift-Ender","Truckin' Along","SUPER","A case · candy red"],
-  ["drift-ender","Drift-Ender","Truckin' Along","SUPER","A case · candy red"],
-  ["custom otto","Custom Otto","Mattel","SUPER","candy blue"],
-  ["maxima drift","Nissan Maxima Drift Car","Wagons","SUPER","L case"],
-  ["buick regal","'87 Buick Regal GNX","Nightspeed","TH","regular hunt"],
-  ["dodge viper","'92 Dodge Viper RT/10","Drop Tops","TH","regular hunt"],
-  ["electro silhouette","Electro Silhouette","HW EV","TH","regular hunt · 58/250"],
-  ["ford gt race","2016 Ford GT Race","Exoticars","TH","regular hunt"],
-  ["2 jet z","2 Jet Z","HW Dream Garage","TH","regular hunt"],
-  ["sweet driver","Sweet Driver","Sweet Rides","TH","K-case regular hunt"],
-  ["fast fish","Fast Fish","Team Wheels","TH","N-case regular hunt"],
-  ["skyline ht","Nissan Skyline HT 2000GT-X","HW Screen Time","TH","P-case regular hunt"],
-  ["hot wheengs","Hot Wheengs","X-Raycers","TH","regular hunt"],
-  ["cone shaker","Cone Shaker","HW Starting Grid","TH","regular hunt"],
-  ["total disposal","Total Disposal","HW Heavyweights","TH","regular hunt"],
-  ["amaru gtc","Amaru GTC","HW Mods","TH","regular hunt"],
-  ["mad manga","Mad Manga","Hot Wheels Let's Race","TH","regular hunt"],
-  ["model a custom","Ford Model A Custom","Rod Squad","TH","regular hunt"],
-  ["mach-e","Ford Mustang Mach-E 1400","HW EV","NO","Red Edition exists · check for RED on door"],
-  ["mach e","Ford Mustang Mach-E 1400","HW EV","NO","2/10 · not a Super"],
-  ["taycan","Porsche Taycan Turbo S","HW EV","NO","3/10"],
-  ["wattzup","Wattzup","HW EV","NO","4/10"],
-  ["lucid air","Lucid Air","HW EV","NO","6/10"],
-  ["polestar","Polestar TRX","HW EV","NO","7/10"],
-  ["voltage spike","Voltage Spike","HW EV","NO","8/10"],
-  ["honda e","Custom 2020 Honda e","HW EV","NO","9/10 · new casting"],
-  ["celestiq","Cadillac Celestiq","HW EV","NO","10/10 · new casting"],
-  ["solar reflex","Solar Reflex","HW EV","NO","1/10"],
-  ["kia ev6","Custom Kia EV6","HW EV","NO","2025 · 8/10 · not rare"],
-  ["ev6","Custom Kia EV6","HW EV","NO","2025 · not rare"],
-  ["gr supra","'20 Toyota GR Supra","Then and Now","RED","Target Red Edition is the exclusive"],
-  ["mclaren w1","McLaren W1","Exoticars","RED","Target Red Edition exists"],
-  ["porsche 911 turbo cabriolet","Porsche 911 Turbo Cabriolet","HW Roadsters","RED","Target Red Edition"],
-  ["pass'n gasser","Pass'n Gasser","Drag Racers","RED","Target Red Edition"],
-  ["passn gasser","Pass'n Gasser","Drag Racers","RED","Target Red Edition"],
-  ["purple passion","Tooned Purple Passion","HW Dream Garage","NO","148/250 · 5/5 · new for 2026 · not rare"],
-  ["tooned purple","Tooned Purple Passion","HW Dream Garage","NO","148/250 · not rare"],
-  ["mazda rx-3","Mazda RX-3","Tooned","NO","4/10 · mainline · Red Edition is a different card"],
-  ["rx-3","Mazda RX-3","Tooned","NO","4/10 · not this blue one"],
-  ["pagani zonda","Pagani Zonda Cinque","Exoticars","NO","orange mainline · not rare"],
-  ["zonda cinque","Pagani Zonda Cinque","Exoticars","NO","not rare"],
-  ["honda odyssey","Honda Odyssey","HW Screen Time","RED","Target Red Edition is the exclusive"],
-  ["silverado","'83 Chevy Silverado","Truckin' Along","NO","common mainline"],
-  ["batmobile","Batmobile","Batman","NO","common mainline"],
-  ["charger daytona","'69 Dodge Charger Daytona","HW Starting Grid","NO","common mainline"],
-  ["pagani","Pagani Zonda Cinque","Exoticars","NO","common mainline"],
-  ["deora","Deora III","HW EV","NO","2025 · 2/10"],
-  ["cupra","Cupra e-Racer","HW EV","NO","2025 · 4/10"],
-  ["fiat 500e","Fiat 500e","HW EV","NO","2025"],
-  ["model s","Tesla Model S Plaid","HW EV","NO","2025 · 1/10"]
-];
-
+const CATALOG = [["ferrari f40","Ferrari F40 Competizione","Ferrari","SUPER","63/250"],["mustang gtd","Ford Mustang GTD","Factory Fresh","SUPER","43/250"],["94 toyota supra","'94 Toyota Supra","Tooned","SUPER","K case"],["ram 1500","'23 Ram 1500","HW Dirt","SUPER","N case"],["purple passion","Tooned Purple Passion","HW Dream Garage","NO","not rare"],["mazda rx-3","Mazda RX-3","Tooned","NO","4/10"],["pagani zonda","Pagani Zonda Cinque","Exoticars","NO","not rare"]];
 const video = document.getElementById("video");
-const overlay = document.getElementById("overlay");
-const ctx = overlay.getContext("2d");
 const toast = document.getElementById("toast");
 const err = document.getElementById("err");
 const list = document.getElementById("list");
 const count = document.getElementById("count");
 const startBtn = document.getElementById("startBtn");
-const torchBtn = document.getElementById("torchBtn");
-let stream = null, torchOn = false, busy = false, saved = 0;
-const locks = new Map();
-const grab = document.createElement("canvas");
-const gctx = grab.getContext("2d", { willReadFrequently: true });
-const seen = new Map();
-const queue = [];
-
-function norm(s) {
-  return (s || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").replace(/\s+/g, " ").trim();
-}
-function matchText(text) {
-  const n = norm(text);
-  let best = null;
-  for (const row of CATALOG) {
-    if (n.includes(row[0])) {
-      if (!best || row[0].length > best[0].length) best = row;
-    }
-  }
-  if (best) return { name: best[1], series: best[2], kind: best[3], note: best[4] };
-  const seriesWords = ["hw dream garage","exoticars","tooned","hw ev","factory fresh","hw dirt","hw euro","drag racers","then and now","nightspeed","drop tops","hw j-imports","j-imports","hw screen time","compact kings","sweet rides","team wheels","layin low","hw torque","cool classics","hw mods","x-raycers"];
-  const seriesHit = seriesWords.find(s => n.includes(s));
-  if (seriesHit) return { name: "Glimpse only", series: seriesHit.toUpperCase(), kind: "UNK", note: "Only a sliver was visible. Check the flame on this card." };
-  return { name: "Unread glimpse", series: "Unknown collection", kind: "UNK", note: "Caught a piece of a card. Name not readable yet." };
-}
-function showError(msg) { err.hidden = false; err.textContent = msg; }
-function say(msg, ms) {
-  toast.style.display = "block";
-  toast.textContent = msg;
-  clearTimeout(say._t);
-  say._t = setTimeout(() => { toast.style.display = "none"; }, ms || 2200);
-}
-async function startCamera() {
-  err.hidden = true;
-  try {
-    stream = await navigator.mediaDevices.getUserMedia({ audio:false, video:{ facingMode:{ ideal:"environment" }, width:{ ideal:1920 }, height:{ ideal:1080 } } });
-    video.srcObject = stream;
-    await video.play();
-    startBtn.disabled = true;
-    document.getElementById("shotBtn").disabled = false;
-    const caps = stream.getVideoTracks()[0].getCapabilities?.();
-    torchBtn.disabled = !(caps && caps.torch);
-    say("Camera on. Stacks are split by each logo.");
-    requestAnimationFrame(loop);
-  } catch (e) {
-    showError("Open this in Safari and allow Camera.");
-  }
-}
-async function toggleTorch() {
-  torchOn = !torchOn;
-  try { await stream.getVideoTracks()[0].applyConstraints({ advanced:[{ torch: torchOn }] }); torchBtn.textContent = torchOn ? "Light on" : "Light"; }
-  catch (e) { torchOn = false; showError("Light not available."); }
-}
-function loop() {
-  if (video.videoWidth) detect();
-  requestAnimationFrame(loop);
-}
-function detect() {
-  overlay.width = overlay.clientWidth; overlay.height = overlay.clientHeight;
-  grab.width = 200; grab.height = Math.max(1, Math.round(200 * video.videoHeight / video.videoWidth));
-  gctx.drawImage(video, 0, 0, grab.width, grab.height);
-  const data = gctx.getImageData(0, 0, grab.width, grab.height).data;
-  const cols = 16, rows = 22;
-  const cw = grab.width / cols, ch = grab.height / rows;
-  const cells = [];
-  for (let y = 0; y < rows; y++) for (let x = 0; x < cols; x++) {
-    let blue = 0, logo = 0, bar = 0;
-    for (let sy = 0; sy < 2; sy++) for (let sx = 0; sx < 2; sx++) {
-      const px = Math.min(grab.width - 1, Math.floor(x * cw + (sx + .5) * cw / 2));
-      const py = Math.min(grab.height - 1, Math.floor(y * ch + (sy + .5) * ch / 2));
-      const i = (py * grab.width + px) * 4;
-      const r = data[i], g = data[i+1], b = data[i+2];
-      if (b > 105 && b > r + 28 && b > g + 8) blue++;
-      if ((r > 145 && g > 80 && b < 140 && r > b + 30) || (r > 145 && g < 115 && b < 115 && r > g + 25)) logo++;
-      // Side series bars: green Tooned, yellow Exoticars, black Dream Garage, red Ferrari
-      if ((g > 120 && g > r + 25 && g > b + 15) || (r > 150 && g > 130 && b < 80) || (r < 45 && g < 45 && b < 45)) bar++;
-    }
-    if (blue || logo || bar >= 3) cells.push({ x, y, blue, logo, bar });
-  }
-  const blobs = [];
-  cells.forEach(c => {
-    let blob = blobs.find(b => Math.abs(b.x - c.x) <= 1 && Math.abs(b.y - c.y) <= 1);
-    if (!blob) { blob = { x: c.x, y: c.y, n: 0, sx: 0, sy: 0, logo: 0, blue: 0, bar: 0, minx: c.x, maxx: c.x, miny: c.y, maxy: c.y }; blobs.push(blob); }
-    blob.n++; blob.sx += c.x; blob.sy += c.y; blob.logo += c.logo; blob.blue += c.blue; blob.bar += c.bar;
-    blob.minx = Math.min(blob.minx, c.x); blob.maxx = Math.max(blob.maxx, c.x);
-    blob.miny = Math.min(blob.miny, c.y); blob.maxy = Math.max(blob.maxy, c.y);
-  });
-  ctx.clearRect(0, 0, overlay.width, overlay.height);
-  ctx.lineWidth = 3; ctx.font = "bold 12px -apple-system";
-  const now = performance.now();
-  const live = new Set();
-  const found = blobs.filter(b => b.n >= 1 && (b.logo > 0 || b.blue > 1 || b.bar > 2));
-  found.slice(0, 8).forEach((b, idx) => {
-    const x0 = b.minx * cw, y0 = b.miny * ch;
-    const bw = Math.max((b.maxx - b.minx + 1) * cw, cw * 1.4);
-    const bh = Math.max((b.maxy - b.miny + 1) * ch, ch * 1.4);
-    const key = b.minx + ":" + b.miny;
-    live.add(key);
-    ctx.strokeStyle = b.logo ? "#e2b340" : "#7eb6ff";
-    ctx.fillStyle = ctx.strokeStyle;
-    ctx.strokeRect(x0 / grab.width * overlay.width, y0 / grab.height * overlay.height, bw / grab.width * overlay.width, bh / grab.height * overlay.height);
-    ctx.fillText(String(idx + 1), x0 / grab.width * overlay.width + 4, y0 / grab.height * overlay.height + 14);
-    if (!locks.has(key)) locks.set(key, now);
-    if (now - locks.get(key) > 350 && now - (seen.get(key) || 0) > 3500) {
-      seen.set(key, now);
-      queue.push({ x: Math.max(0, x0 / grab.width - 0.08), y: Math.max(0, y0 / grab.height - 0.12), w: Math.min(1, bw / grab.width + 0.2), h: Math.min(1, bh / grab.height + 0.28), key });
-    }
-  });
-  for (const key of locks.keys()) if (!live.has(key)) locks.delete(key);
-  count.textContent = found.length + " glimpses · " + saved + " saved";
-  if (!busy && queue.length) capture(queue.shift());
-}
-async function capture(box) {
-  busy = true;
-  const snap = document.createElement("canvas");
-  const sw = video.videoWidth, sh = video.videoHeight;
-  const x = Math.max(0, Math.floor(box.x * sw));
-  const y = Math.max(0, Math.floor(box.y * sh));
-  const w = Math.max(1, Math.min(sw - x, Math.floor(box.w * sw)));
-  const h = Math.max(1, Math.min(sh - y, Math.floor(box.h * sh)));
-  snap.width = w; snap.height = h;
-  snap.getContext("2d").drawImage(video, x, y, w, h, 0, 0, w, h);
-  const url = snap.toDataURL("image/jpeg", 0.85);
-  const row = addItem(url, { name: "Reading glimpse…", series: "Hold still", kind: "UNK", note: "Photo saved. Name comes next." });
-  say("Saved a glimpse");
-  let text = "";
-  try {
-    if (window.Tesseract) {
-      const r = await Promise.race([
-        Tesseract.recognize(url, "eng"),
-        new Promise((_, reject) => setTimeout(() => reject(new Error("slow")), 8000))
-      ]);
-      text = r.data.text || "";
-    }
-  } catch (e) { text = ""; }
-  const hit = text.trim() ? matchText(text) : { name: "Glimpse saved", series: "Unknown collection", kind: "UNK", note: "Could not read the name. Check the flame on this card." };
-  fillRow(row, hit);
-  if (hit.kind === "SUPER" || hit.kind === "TH" || hit.kind === "RED") {
-    say(hit.kind + ": " + hit.name, 2800);
-    navigator.vibrate?.([80, 40, 80]);
-  }
-  busy = false;
-}
-function addItem(url, hit) {
-  if (list.querySelector(".empty")) list.innerHTML = "";
-  saved++;
-  count.textContent = saved + " saved";
-  const el = document.createElement("div");
-  el.className = "item";
-  el.innerHTML = `<img alt="" src="${url}"><div class="body"></div>`;
-  list.prepend(el);
-  fillRow(el, hit);
-  return el;
-}
-function fillRow(el, hit) {
-  const label = hit.kind === "SUPER" ? "SUPER" : hit.kind === "TH" ? "TREASURE HUNT" : hit.kind === "RED" ? "RED EDITION" : hit.kind === "UNK" ? "CHECK CARD" : "NOT RARE";
-  el.querySelector(".body").innerHTML = `<div class="name">${hit.name}</div><div class="meta">${hit.series}<br>${hit.note}</div><div class="badge ${hit.kind}">${label}</div>`;
-}
-document.getElementById("shotBtn").addEventListener("click", () => {
-  if (!video.videoWidth || busy) return;
-  capture({ x: 0.2, y: 0.15, w: 0.6, h: 0.7, key: "shot" });
-});
-startBtn.addEventListener("click", startCamera);
-torchBtn.addEventListener("click", toggleTorch);
-document.getElementById("clearBtn").addEventListener("click", () => {
-  saved = 0; seen.clear(); count.textContent = "0 saved";
-  list.innerHTML = '<p class="empty">List cleared. Point at the peg again.</p>';
-});
+const shotBtn = document.getElementById("shotBtn");
+let stream = null, torchOn = false, saved = 0, reading = false;
+function norm(s){return (s||"").toLowerCase().replace(/[^a-z0-9]+/g," ").replace(/\s+/g," ").trim();}
+function matchText(text){const n=norm(text);let best=null;for(const row of CATALOG)if(n.includes(row[0])&&(!best||row[0].length>best[0].length))best=row;if(best)return{name:best[1],series:best[2],kind:best[3],note:best[4]||"Check the flame."};return{name:"Check card",series:"Unknown",kind:"UNK",note:"Photo saved. Tilt for the gold flame."};}
+function say(msg){toast.style.display="block";toast.textContent=msg;clearTimeout(say._t);say._t=setTimeout(()=>toast.style.display="none",1800);}
+async function startCamera(){err.hidden=true;try{stream=await navigator.mediaDevices.getUserMedia({audio:false,video:{facingMode:{ideal:"environment"},width:{ideal:1920},height:{ideal:1080}}});video.srcObject=stream;await video.play();startBtn.disabled=true;shotBtn.disabled=false;const caps=stream.getVideoTracks()[0].getCapabilities?.();document.getElementById("torchBtn").disabled=!(caps&&caps.torch);say("Aim the box. Tap Capture.");}catch(e){err.hidden=false;err.textContent="Open in Safari and allow Camera.";}}
+async function toggleTorch(){torchOn=!torchOn;try{await stream.getVideoTracks()[0].applyConstraints({advanced:[{torch:torchOn}]});document.getElementById("torchBtn").textContent=torchOn?"Light on":"Light";}catch(e){torchOn=false;}}
+function addItem(url,hit){if(list.querySelector(".empty"))list.innerHTML="";saved++;count.textContent=saved+" saved";const el=document.createElement("div");el.className="item";el.innerHTML=`<img alt="" src="${url}"><div class="body"></div>`;list.prepend(el);fill(el,hit);return el;}
+function fill(el,hit){const label=hit.kind==="SUPER"?"SUPER":hit.kind==="TH"?"TREASURE HUNT":hit.kind==="RED"?"RED EDITION":hit.kind==="NO"?"NOT RARE":"CHECK CARD";el.querySelector(".body").innerHTML=`<div class="name">${hit.name}</div><div class="meta">${hit.series}<br>${hit.note}</div><div class="badge ${hit.kind}">${label}</div>`;}
+async function capture(){if(!video.videoWidth)return;const sw=video.videoWidth,sh=video.videoHeight;const x=Math.floor(sw*0.18),y=Math.floor(sh*0.14),w=Math.floor(sw*0.64),h=Math.floor(sh*0.72);const snap=document.createElement("canvas");snap.width=w;snap.height=h;snap.getContext("2d").drawImage(video,x,y,w,h,0,0,w,h);const url=snap.toDataURL("image/jpeg",0.9);const row=addItem(url,{name:"Saved",series:"Reading",kind:"UNK",note:"Photo is in."});say("Saved");if(reading)return;reading=true;let text="";try{if(window.Tesseract){const r=await Promise.race([Tesseract.recognize(url,"eng"),new Promise((_,rej)=>setTimeout(()=>rej(new Error("slow")),7000))]);text=r.data?.text||"";}}catch(e){}fill(row,text.trim()?matchText(text):{name:"Check card",series:"Unknown",kind:"UNK",note:"Could not read the name. Check the flame."});reading=false;}
+startBtn.addEventListener("click",startCamera);
+document.getElementById("torchBtn").addEventListener("click",toggleTorch);
+shotBtn.addEventListener("click",capture);
 </script>
 </body>
 </html>
